@@ -1,0 +1,51 @@
+version: '3.3'
+
+services:
+  web:
+    image: node:20
+    volumes:
+      - .:/app
+    ports:
+      - 3000
+      - 3001:3001
+    working_dir: /app
+    command: bash -c "npm run dev"
+
+  api:
+    image: getmeili/meilisearch:v1.6
+    ports:
+      - 7700:7700
+    environment:
+      MEILI_MASTER_KEY: MASTER_KEY
+
+  auth:
+    image: golang:1.22
+    environment:
+      - AUTHORIZED_USERS=willhy@gmail.com:password
+      - SERVER_SECRET=abc123
+      - API_KEY=MASTER_KEY
+      - ENCRYPTION_BCRYPT_COST=3
+    working_dir: /app
+    volumes:
+      - ./auth:/app:ro
+    command: bash -c "go mod download && go run cmd/main.go"
+
+  nginx:
+    image: nginx
+    ports:
+      - 80:80
+      - 443:443
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        openssl req -newkey rsa:2048 -subj "/C=US/ST=Illinois/L=Chicago/O=Notes/CN=localhost" -nodes -keyout /tmp/localhost.key -x509 -days 365 -out /tmp/localhost.crt
+        ls /tmp/
+        nginx -g "daemon off;"
+    depends_on:
+      - web
+      - api
+      - auth

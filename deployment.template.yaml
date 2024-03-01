@@ -1,0 +1,212 @@
+kind: Namespace
+apiVersion: v1
+metadata:
+  name: notes
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: app-pv
+spec:
+  capacity:
+    storage: 100Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Delete
+  storageClassName: local-storage
+  local:
+    path: /apps/notes
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/os
+              operator: In
+              values:
+                - linux
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: app-pvc
+  namespace: notes
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-storage
+  resources:
+    requests:
+      storage: 100Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: db-pv
+spec:
+  capacity:
+    storage: 100Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Delete
+  storageClassName: local-storage
+  local:
+    path: /storage/notes
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/os
+              operator: In
+              values:
+                - linux
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: db-pvc
+  namespace: notes
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-storage
+  resources:
+    requests:
+      storage: 100Gi
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: deployment
+  namespace: notes
+  labels:
+    app: traefiklabs
+    name: notes
+
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: traefiklabs
+      task: task
+  template:
+    metadata:
+      labels:
+        app: traefiklabs
+        task: task
+    spec:
+      containers:
+        - name: api
+          image: getmeili/meilisearch:v1.6
+          ports:
+            - containerPort: 7700
+          volumeMounts:
+            - name: db-files-volume
+              mountPath: /meili_data
+          env:
+            - name: MEILI_MASTER_KEY
+              value: MASTER_KEY
+
+        - name: auth
+          image: golang:1.22
+          ports:
+            - containerPort: 8000
+          workingDir: /app
+          volumeMounts:
+            - name: app-files-volume
+              subPath: auth
+              mountPath: /app
+          env:
+            - name: AUTHORIZED_USERS
+              value: willhy@gmail.com:password
+            - name: SERVER_SECRET
+              value: abc123
+            - name: API_KEY
+              value: MASTER_KEY
+            - name: ENCRYPTION_BCRYPT_COST
+              value: '3'
+          command: ['/bin/sh', '-c', 'go mod download && go run cmd/main.go']
+
+        - name: nginx
+          image: nginx
+          ports:
+            - containerPort: 80
+            - containerPort: 443
+          volumeMounts:
+            - name: app-files-volume
+              mountPath: /var/www/html
+              subPath: dist
+              readOnly: true
+            - name: app-files-volume
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: nginx.prod.conf
+
+      volumes:
+        - name: app-files-volume
+          persistentVolumeClaim:
+            claimName: app-pvc
+        - name: db-files-volume
+          persistentVolumeClaim:
+            claimName: db-pvc
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: nginx
+  namespace: notes
+
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+  selector:
+    app: traefiklabs
+    task: task
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: auth
+  namespace: notes
+
+spec:
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: api
+  namespace: notes
+
+spec:
+  ports:
+    - name: http
+      port: 7700
+      targetPort: 7700
+---
+kind: Ingress
+apiVersion: networking.k8s.io/v1
+metadata:
+  name: ingress
+  namespace: notes
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web, websecure
+    traefik.ingress.kubernetes.io/router.tls.certresolver: traefikresolver
+
+spec:
+  rules:
+    - host: notes.willhy.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nginx
+                port:
+                  number: 80
