@@ -1,0 +1,15 @@
+{
+  "name": "Notes",
+  "short_name": "Notes",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#fff",
+  "description": "Note taking app.",
+  "icons": [],
+  "related_applications": [
+    {
+      "platform": "webapp",
+      "url": "https://notes.willhy.com"
+    }
+  ]
+}

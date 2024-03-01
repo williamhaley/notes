@@ -1,0 +1,6 @@
+.github
+.vscode
+docker-compose.yaml
+Dockerfile
+README.md
+node_modules
